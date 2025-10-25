@@ -8,8 +8,61 @@ import io
 import re
 from difflib import get_close_matches
 
-st.set_page_config(page_title="DataHub ASP Siena - MVP", layout="wide")
+# inizializzazione dello stato della pagina
+if "page" not in st.session_state:
+    st.session_state.page = "welcome"
 
+def go_to(page_name: str):
+    """Cambia pagina e ricarica l'app"""
+    st.session_state.page = page_name
+    st.rerun()
+
+# -------------------------
+# WELCOME PAGE
+# -------------------------
+if st.session_state.page == "welcome":
+    st.title("🧠 Centralizzazione intelligente dei dati - ASP Siena")
+    st.write("Prototipo AI per armonizzare e sincronizzare dati eterogenei tra sistemi diversi.")
+    if st.button("Accedi al portale"):
+        go_to("login")
+
+# -------------------------
+# LOGIN PAGE
+# -------------------------
+elif st.session_state.page == "login":
+    st.header("Login area riservata")
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+    token = st.text_input("Token WHR-TIME")
+    if st.button("Entra"):
+        if token.strip().upper().startswith("WHR"):
+            st.success("Login effettuato!")
+            go_to("main_menu")
+        else:
+            st.error("Token non valido")
+    if st.button("← Torna indietro"):
+        go_to("welcome")
+
+# -------------------------
+# MAIN MENU
+# -------------------------
+elif st.session_state.page == "main_menu":
+    st.header("Menu principale")
+    if st.button("📂 Carica dati"):
+        go_to("upload")
+    if st.button("🛠️ Gestione dati"):
+        go_to("manage")
+    if st.button("← Logout"):
+        go_to("welcome")
+
+# -------------------------
+# UPLOAD PAGE
+# -------------------------
+elif st.session_state.page == "upload":
+    st.header("Caricamento file")
+    uploaded_files = st.file_uploader("Carica CSV, Excel o PDF", type=["csv", "xls",]()
+
+                                      
 # -------------------------
 # Helper / Config
 # -------------------------
