@@ -60,7 +60,7 @@ elif st.session_state.page == "main_menu":
 # -------------------------
 elif st.session_state.page == "upload":
     st.header("Caricamento file")
-    uploaded_files = st.file_uploader("Carica CSV, Excel o PDF", type=["csv", "xls",]()
+    uploaded_files = st.file_uploader("Carica CSV, Excel o PDF", type=["csv", "xls",]())
 
                                       
 # -------------------------
