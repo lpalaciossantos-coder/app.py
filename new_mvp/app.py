@@ -1,10 +1,10 @@
-# app_mvp.py
+# app_mvp_v2.py
 import streamlit as st
 import pandas as pd
-import numpy as np
 import pdfplumber
 from fpdf import FPDF
 import re
+import io
 
 # -------------------------
 # PAGINA CORRENTE E NAVIGAZIONE
@@ -17,12 +17,10 @@ def go_to(page_name: str):
     st.rerun()
 
 # -------------------------
-# SESSION STATE PER DATI
+# SESSION STATE
 # -------------------------
 if "uploaded_files_store" not in st.session_state:
     st.session_state.uploaded_files_store = {}
-if "internal_db" not in st.session_state:
-    st.session_state.internal_db = {}
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "show_upload" not in st.session_state:
@@ -44,8 +42,6 @@ def read_file(uploaded_file):
             return pd.read_excel(uploaded_file)
         elif name.endswith(".pdf"):
             return extract_table_from_pdf(uploaded_file)
-        else:
-            return None
     except:
         return None
 
@@ -78,33 +74,18 @@ def find_cf_candidates_in_df(df):
                 return col, v
     return None, None
 
-def generate_report_pdf(df, cf, month=None):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", 'B', 14)
-    pdf.cell(0, 10, f"Report mensile per CF: {cf}", ln=True)
-    pdf.set_font("Arial", size=12)
-    if month:
-        pdf.cell(0, 8, f"Mese: {month}", ln=True)
-    pdf.ln(4)
-    for _, row in df.head(50).iterrows():
-        line = " | ".join(f"{k}:{v}" for k,v in row.items() if pd.notna(v))
-        pdf.multi_cell(0, 6, line)
-        pdf.ln(1)
-    return pdf.output(dest="S").encode("latin1")
-
-def make_email_template(problem_description, cf, file_names):
-    subject = f"[ACTION REQUIRED] Problema dati CF {cf}"
-    body = f"Ciao,\n\nProblema nei documenti CF {cf}: {problem_description}\nFile: {', '.join(file_names)}\n\nSaluti"
-    return subject, body
-
 # -------------------------
 # WELCOME PAGE
 # -------------------------
 if st.session_state.page == "welcome":
+    st.image("logo_azienda.png", width=150)  # spazio per il logo
     st.title("🧠 DataHub MVP - ASP Siena")
-    st.write("Prototipo per armonizzare e sincronizzare dati eterogenei")
-    if st.button("Accedi"):
+    st.write("""
+        Prototipo AI per armonizzare e sincronizzare dati eterogenei.
+        \nCarica file, armonizza dati e genera report per pazienti.
+    """)
+    st.write("✨ Benvenuto! Inizia cliccando il pulsante per accedere.")
+    if st.button("Accedi al portale"):
         go_to("login")
 
 # -------------------------
@@ -112,18 +93,21 @@ if st.session_state.page == "welcome":
 # -------------------------
 elif st.session_state.page == "login":
     st.header("Login area riservata")
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
-    token = st.text_input("Token WHR-TIME")
-    if st.button("Entra"):
-        if token.strip().upper().startswith("WHR"):
-            st.success("Login effettuato!")
-            st.session_state.logged_in = True
-            go_to("main_menu")
-        else:
-            st.error("Token non valido")
-    if st.button("← Torna indietro"):
-        go_to("welcome")
+    col1, col2 = st.columns([2,1])
+    with col1:
+        user = st.text_input("Username")
+        pwd = st.text_input("Password", type="password")
+        token = st.text_input("Token WHR-TIME")
+        if st.button("Entra"):
+            if token.strip().upper().startswith("WHR"):
+                st.success("Login effettuato!")
+                st.session_state.logged_in = True
+                go_to("main_menu")
+            else:
+                st.error("Token non valido")
+    with col2:
+        if st.button("← Torna indietro"):
+            go_to("welcome")
 
 if not st.session_state.logged_in:
     st.stop()
@@ -133,19 +117,20 @@ if not st.session_state.logged_in:
 # -------------------------
 elif st.session_state.page == "main_menu":
     st.header("Menu principale")
-    if st.button("📂 Carica dati"):
-        go_to("upload")
-    if st.button("🛠️ Gestione dati"):
-        go_to("manage")
-    if st.button("← Logout"):
-        st.session_state.logged_in = False
-        go_to("welcome")
+    col1, col2 = st.columns([2,2])
+    with col1:
+        if st.button("📂 Carica dati"):
+            go_to("upload")
+    with col2:
+        if st.button("🛠️ Gestione dati"):
+            go_to("manage")
+    st.button("🔒 Logout", key="logout_main", on_click=lambda: go_to("welcome"))
 
 # -------------------------
 # UPLOAD PAGE
 # -------------------------
 elif st.session_state.page == "upload":
-    st.header("Upload file (MVP)")
+    st.header("Caricamento file")
     uploaded = st.file_uploader("Trascina file qui", type=["csv","xls","xlsx","pdf","txt"], accept_multiple_files=True)
     if uploaded:
         for f in uploaded:
@@ -182,12 +167,48 @@ elif st.session_state.page == "manage":
                     temp[f.name] = df
                     col, cf = find_cf_candidates_in_df(df)
                     cf_values[f.name] = {"col": col, "cf": cf}
-            st.write(cf_values)
-            if st.button("Genera report mensile"):
-                # logica CF mismatch / armonizzazione qui
-                pass
+            st.subheader("CF rilevati in ogni file")
+            for fname, info in cf_values.items():
+                st.write(f"- {fname}: CF={info['cf']} (colonna: {info['col']})")
+            
+            # selezione sotto-attività
+            if area != "Combinata / Multi-area":
+                activity = st.selectbox("Seleziona attività specifica", [
+                    "Visualizza cartella clinica",
+                    "Collega a ordine farmacia",
+                    "Report spese paziente"
+                ] if area=="Sanitario" else (
+                    ["Genera fattura","Prepara email","Richiedi pagamento"] if area=="Finanziario" else
+                    ["Riepilogo acquisti","Analisi consumi mense","Report personale"]
+                ))
+            else:
+                activity = st.selectbox("Seleziona funzione combinata", [
+                    "Armonizza dati paziente",
+                    "Genera fattura completa",
+                    "Report multi-paziente",
+                    "Controllo qualità / discrepanze"
+                ])
+            
+            # Pulsante finale con icona per scaricare Excel
+            if st.button("💾 Genera report finale"):
+                all_frames = []
+                for fname, df in temp.items():
+                    col = cf_values[fname]['col']
+                    cf = cf_values[fname]['cf']
+                    if col:
+                        mask = df[col].astype(str).str.contains(cf, case=False, na=False)
+                        all_frames.append(df[mask])
+                if all_frames:
+                    harmonized = pd.concat(all_frames, ignore_index=True)
+                    # scarica Excel
+                    output = io.BytesIO()
+                    harmonized.to_excel(output, index=False)
+                    st.download_button("📥 Scarica Excel", data=output.getvalue(), file_name="report.xlsx", mime="application/vnd.ms-excel")
+                    st.success("✅ Salvamento effettuato!")
+                else:
+                    st.warning("Nessun dato trovato da armonizzare.")
+    
     else:
-        st.write("DB interno selezionato — funzione per MVP")
-
-    if st.button("← Torna al menu"):
-        go_to("main_menu")
+        st.write("DB interno selezionato — funzione pronta per MVP")
+    
+    st.button("← Torna al menu", on_click=lambda: go_to("main_menu"))
