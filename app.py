@@ -34,8 +34,8 @@ def extract_table_from_pdf(uploaded_pdf):
                 df = df.loc[:, ~df.columns.duplicated()]
                 tables.append(df)
     if tables:
-        # Trovo tutte le colonne presenti in tutte le tabelle
-        all_columns = sorted(set(col for df in tables for col in df.columns))
+        # Convertiamo tutte le colonne in stringa per evitare TypeError
+        all_columns = sorted(set(str(col) for df in tables for col in df.columns))
         # Riempi con NaN le colonne mancanti
         tables_fixed = []
         for df in tables:
