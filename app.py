@@ -23,16 +23,27 @@ def read_file(uploaded_file):
     return df
 
 def extract_table_from_pdf(uploaded_pdf):
-    """Estrae tabelle da PDF testuali (non immagini)."""
+    """Estrae tabelle da PDF testuali e armonizza colonne."""
     tables = []
     with pdfplumber.open(uploaded_pdf) as pdf:
         for page in pdf.pages:
             table = page.extract_table()
             if table:
                 df = pd.DataFrame(table[1:], columns=table[0])
+                # Rimuovo eventuali colonne duplicate
+                df = df.loc[:, ~df.columns.duplicated()]
                 tables.append(df)
     if tables:
-        return pd.concat(tables, ignore_index=True)
+        # Trovo tutte le colonne presenti in tutte le tabelle
+        all_columns = sorted(set(col for df in tables for col in df.columns))
+        # Riempi con NaN le colonne mancanti
+        tables_fixed = []
+        for df in tables:
+            for col in all_columns:
+                if col not in df.columns:
+                    df[col] = pd.NA
+            tables_fixed.append(df[all_columns])
+        return pd.concat(tables_fixed, ignore_index=True)
     else:
         st.warning("Nessuna tabella rilevata nel PDF.")
         return pd.DataFrame()
