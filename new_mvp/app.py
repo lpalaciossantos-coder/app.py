@@ -6,7 +6,6 @@ import pdfplumber
 from fpdf import FPDF
 import io
 import re
-import webbrowser
 
 st.set_page_config(page_title="DataHub ASP Siena - MVP", layout="wide")
 
@@ -120,6 +119,7 @@ def make_email_template(problem_description, cf, file_names):
         f"Puoi verificare e correggere? Grazie.\n\n"
         f"Saluti,\nTeam DataHub"
     )
+    # crea mailto link
     mailto_link = f"mailto:tecnico@azienda.it?subject={subject}&body={body}"
     return subject, body, mailto_link
 
@@ -233,76 +233,77 @@ if st.session_state.show_manage:
                     temp_frames[f.name] = df
                     col, cf_val = find_cf_candidates_in_df(df)
                     cf_values[f.name] = {"col": col, "cf": cf_val}
+
                 st.write("Riepilogo CF rilevati:")
                 for fname, info in cf_values.items():
                     st.write(f"- {fname} → CF rilevato: {info['cf']} (col: {info['col']})")
+
+                # ---------------------
+                # Sezione CF principale e gestione discrepanze
+                # ---------------------
                 detected_cfs = [v['cf'] for v in cf_values.values() if v['cf']]
                 unique_cfs = list(set(detected_cfs))
                 manual_cf = None
                 if not detected_cfs:
                     manual_cf = st.text_input("Inserisci CF del paziente (16 caratteri):").strip().upper()
 
-                activity = None
-                if area != "Combinata / Multi-area":
-                    activity = st.selectbox("Seleziona attività:", [
-                        "Visualizza cartella clinica" if area=="Sanitario" else
-                        "Genera fattura" if area=="Finanziario" else
-                        "Riepilogo acquisti"
-                    ])
+                cf_for_report = manual_cf if manual_cf else (unique_cfs[0] if len(unique_cfs)==1 else None)
+
+                if cf_for_report is None:
+                    st.error("CF non determinato univocamente. Inserisci manualmente il CF principale.")
                 else:
-                    activity = st.selectbox("Seleziona funzione combinata", multi_ops)
+                    # identifica mismatch: CF diverso o CF assente
+                    mismatched_files = [fname for fname, info in cf_values.items() 
+                                        if info['cf'] is None or info['cf'].upper() != cf_for_report.upper()]
 
-                # ---------------------
-                # Genera report Excel + PDF + controllo CF
-                # ---------------------
-                # dopo aver rilevato cf_values
-                detected_cfs = [v['cf'] for v in cf_values.values() if v['cf']]
-unique_cfs = list(set(detected_cfs))
-manual_cf = None
-if not detected_cfs:
-    manual_cf = st.text_input("Inserisci CF del paziente (16 caratteri):").strip().upper()
+                    if mismatched_files:
+                        st.warning(f"⚠️ Nei documenti caricati il CF non coincide o manca: {mismatched_files}")
+                        st.info(f"Verrà generato il report usando il CF: {cf_for_report} (manuale o primo CF valido trovato)")
 
-cf_for_report = manual_cf if manual_cf else (unique_cfs[0] if len(unique_cfs)==1 else None)
-if cf_for_report is None:
-    st.error("CF non determinato univocamente. Inserisci manualmente il CF principale.")
-else:
-    # identifica mismatch: CF diverso o CF assente
-    mismatched_files = [fname for fname, info in cf_values.items() 
-                        if info['cf'] is None or info['cf'].upper() != cf_for_report.upper()]
+                        subject, body, mailto = make_email_template(
+                            problem_description="CF non coincidenti o assenti nei documenti caricati.",
+                            cf=cf_for_report,
+                            file_names=list(temp_frames.keys())
+                        )
+                        st.subheader("Template email")
+                        st.write("Oggetto:")
+                        st.code(subject)
+                        st.write("Corpo:")
+                        st.code(body)
+                        st.markdown(f"[📧 Invia email](mailto:{mailto[7:]})")  # rimuove mailto: duplicato
 
-    if mismatched_files:
-        st.warning(f"⚠️ Nei documenti caricati il CF non coincide o manca: {mismatched_files}")
-        st.info(f"Verrà generato il report usando il CF: {cf_for_report} (manuale o primo CF valido trovato)")
-
-    # poi filtra dati usando il cf_for_report
-    all_frames = []
-    for fname, df in temp_frames.items():
-        col = cf_values[fname]['col']
-        if col:
-            mask = df[col].astype(str).str.contains(cf_for_report, case=False, na=False)
-            all_frames.append(df[mask])
-        else:
-            # cerca CF nel testo
-            df_masked = df[df.astype(str).apply(lambda row: row.str.contains(cf_for_report, case=False, na=False).any(), axis=1)]
-            all_frames.append(df_masked)
-    harmonized = pd.concat(all_frames, ignore_index=True)
-
-    
-
-                            # Download Excel
-                            towrite = io.BytesIO()
-                            harmonized.to_excel(towrite, index=False, engine='openpyxl')
-                            towrite.seek(0)
-                            st.download_button(
-                                label="💾 Scarica report Excel",
-                                data=towrite,
-                                file_name=f"report_{cf_for_report}.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                            )
-
-                            # Download PDF
-                            pdf_bytes = generate_report_pdf(harmonized, cf_for_report, month_opt if month_opt != "Tutti" else None)
-                            st.download_button("💾 Scarica report PDF combinato", data=pdf_bytes, file_name=f"report_{cf_for_report}.pdf", mime="application/pdf")
-
+                    # filtra dati per CF
+                    all_frames = []
+                    for fname, df in temp_frames.items():
+                        col = cf_values[fname]['col']
+                        if col:
+                            mask = df[col].astype(str).str.contains(cf_for_report, case=False, na=False)
+                            all_frames.append(df[mask])
                         else:
-                            st.warning("Nessun record trovato per il CF selezionato nei file caricati.")
+                            # cerca CF nel testo
+                            df_masked = df[df.astype(str).apply(lambda row: row.str.contains(cf_for_report, case=False, na=False).any(), axis=1)]
+                            all_frames.append(df_masked)
+                    harmonized = pd.concat(all_frames, ignore_index=True)
+
+                    if 'data' in harmonized.columns:
+                        harmonized['data'] = pd.to_datetime(harmonized['data'], errors='coerce')
+                        month_opt = st.selectbox("Seleziona mese (opzionale)", ["Tutti"] + [str(i) for i in range(1,13)])
+                        if month_opt != "Tutti":
+                            harmonized = harmonized[harmonized['data'].dt.month == int(month_opt)]
+                    else:
+                        month_opt = None
+
+                    st.write("Anteprima dati armonizzati:")
+                    st.dataframe(harmonized)
+
+                    # download Excel
+                    towrite = io.BytesIO()
+                    harmonized.to_excel(towrite, index=False, engine='openpyxl')
+                    towrite.seek(0)
+                    st.download_button(
+                        label="💾 Scarica report Excel",
+                        data=towrite,
+                        file_name=f"report_{cf_for_report}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                    st.success("Salvamento effettuato ✅")
