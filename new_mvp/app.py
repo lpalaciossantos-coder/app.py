@@ -120,7 +120,6 @@ def make_email_template(problem_description, cf, file_names):
         f"Puoi verificare e correggere? Grazie.\n\n"
         f"Saluti,\nTeam DataHub"
     )
-    # crea mailto link
     mailto_link = f"mailto:tecnico@azienda.it?subject={subject}&body={body}"
     return subject, body, mailto_link
 
@@ -254,43 +253,32 @@ if st.session_state.show_manage:
                     activity = st.selectbox("Seleziona funzione combinata", multi_ops)
 
                 # ---------------------
-                # Genera report Excel + controllo CF
+                # Genera report Excel + PDF + controllo CF
                 # ---------------------
-                if st.button("💾 Genera report finale Excel"):
+                if st.button("💾 Genera report finale"):
                     cf_for_report = manual_cf if manual_cf else (unique_cfs[0] if len(unique_cfs)==1 else None)
                     if cf_for_report is None:
                         st.error("CF non determinato univocamente.")
                     else:
+                        # verifica mismatch CF
                         mismatch = False
                         mismatched_files = []
                         for fname, info in cf_values.items():
                             if info['cf'] and info['cf'].upper() != cf_for_report.upper():
                                 mismatch = True
                                 mismatched_files.append(fname)
-                        if mismatch:
-                            st.error("⚠️ Nei documenti caricati il CF non coincide!")
-                            st.write("File con CF diverso:", mismatched_files)
-                            subject, body, mailto = make_email_template(
-                                problem_description="CF non coincidenti nei documenti caricati.",
-                                cf=cf_for_report,
-                                file_names=list(temp_frames.keys())
-                            )
-                            st.subheader("Template email")
-                            st.write("Oggetto:")
-                            st.code(subject)
-                            st.write("Corpo:")
-                            st.code(body)
-                            st.markdown(f"[📧 Invia email](mailto:{mailto[7:]})")  # rimuove mailto: duplicato
-                        else:
-                            all_frames = []
-                            for fname, df in temp_frames.items():
-                                col = cf_values[fname]['col']
-                                if col:
-                                    mask = df[col].astype(str).str.contains(cf_for_report, case=False, na=False)
-                                    all_frames.append(df[mask])
-                                else:
-                                    df_masked = df[df.astype(str).apply(lambda row: row.str.contains(cf_for_report, case=False, na=False).any(), axis=1)]
-                                    all_frames.append(df_masked)
+
+                        all_frames = []
+                        for fname, df in temp_frames.items():
+                            col = cf_values[fname]['col']
+                            if col:
+                                mask = df[col].astype(str).str.contains(cf_for_report, case=False, na=False)
+                                all_frames.append(df[mask])
+                            else:
+                                df_masked = df[df.astype(str).apply(lambda row: row.str.contains(cf_for_report, case=False, na=False).any(), axis=1)]
+                                all_frames.append(df_masked)
+
+                        if all_frames:
                             harmonized = pd.concat(all_frames, ignore_index=True)
                             if 'data' in harmonized.columns:
                                 harmonized['data'] = pd.to_datetime(harmonized['data'], errors='coerce')
@@ -299,8 +287,29 @@ if st.session_state.show_manage:
                                     harmonized = harmonized[harmonized['data'].dt.month == int(month_opt)]
                             else:
                                 month_opt = None
-                            st.write("Anteprima dati armonizzati:")
+
+                            st.write("Anteprima dati armonizzati (anche se CF non coincide):")
                             st.dataframe(harmonized)
+
+                            # segnala mismatch CF
+                            if mismatch:
+                                st.warning(f"⚠️ Nei documenti caricati il CF non coincide in questi file: {mismatched_files}")
+                                st.info(f"Verrà generato il report usando il CF: {cf_for_report} (primo CF valido trovato)")
+
+                                if st.button("Genera template email al tecnico / analista"):
+                                    subject, body, mailto = make_email_template(
+                                        problem_description="CF non coincidenti nei documenti caricati.",
+                                        cf=cf_for_report,
+                                        file_names=list(temp_frames.keys())
+                                    )
+                                    st.subheader("Template email (copia/incolla / con connessione mail possibile)")
+                                    st.write("Oggetto:")
+                                    st.code(subject)
+                                    st.write("Corpo:")
+                                    st.code(body)
+                                    st.markdown(f"[📧 Invia email](mailto:{mailto[7:]})")  # rimuove mailto: duplicato
+
+                            # Download Excel
                             towrite = io.BytesIO()
                             harmonized.to_excel(towrite, index=False, engine='openpyxl')
                             towrite.seek(0)
@@ -310,5 +319,10 @@ if st.session_state.show_manage:
                                 file_name=f"report_{cf_for_report}.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                             )
-                            st.success("Salvamento effettuato ✅")
 
+                            # Download PDF
+                            pdf_bytes = generate_report_pdf(harmonized, cf_for_report, month_opt if month_opt != "Tutti" else None)
+                            st.download_button("💾 Scarica report PDF combinato", data=pdf_bytes, file_name=f"report_{cf_for_report}.pdf", mime="application/pdf")
+
+                        else:
+                            st.warning("Nessun record trovato per il CF selezionato nei file caricati.")
