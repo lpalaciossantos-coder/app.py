@@ -255,59 +255,39 @@ if st.session_state.show_manage:
                 # ---------------------
                 # Genera report Excel + PDF + controllo CF
                 # ---------------------
-                if st.button("💾 Genera report finale"):
-                    cf_for_report = manual_cf if manual_cf else (unique_cfs[0] if len(unique_cfs)==1 else None)
-                    if cf_for_report is None:
-                        st.error("CF non determinato univocamente.")
-                    else:
-                        # verifica mismatch CF
-                        mismatch = False
-                        mismatched_files = []
-                        for fname, info in cf_values.items():
-                            if info['cf'] and info['cf'].upper() != cf_for_report.upper():
-                                mismatch = True
-                                mismatched_files.append(fname)
+                # dopo aver rilevato cf_values
+                detected_cfs = [v['cf'] for v in cf_values.values() if v['cf']]
+unique_cfs = list(set(detected_cfs))
+manual_cf = None
+if not detected_cfs:
+    manual_cf = st.text_input("Inserisci CF del paziente (16 caratteri):").strip().upper()
 
-                        all_frames = []
-                        for fname, df in temp_frames.items():
-                            col = cf_values[fname]['col']
-                            if col:
-                                mask = df[col].astype(str).str.contains(cf_for_report, case=False, na=False)
-                                all_frames.append(df[mask])
-                            else:
-                                df_masked = df[df.astype(str).apply(lambda row: row.str.contains(cf_for_report, case=False, na=False).any(), axis=1)]
-                                all_frames.append(df_masked)
+cf_for_report = manual_cf if manual_cf else (unique_cfs[0] if len(unique_cfs)==1 else None)
+if cf_for_report is None:
+    st.error("CF non determinato univocamente. Inserisci manualmente il CF principale.")
+else:
+    # identifica mismatch: CF diverso o CF assente
+    mismatched_files = [fname for fname, info in cf_values.items() 
+                        if info['cf'] is None or info['cf'].upper() != cf_for_report.upper()]
 
-                        if all_frames:
-                            harmonized = pd.concat(all_frames, ignore_index=True)
-                            if 'data' in harmonized.columns:
-                                harmonized['data'] = pd.to_datetime(harmonized['data'], errors='coerce')
-                                month_opt = st.selectbox("Seleziona mese (opzionale)", ["Tutti"] + [str(i) for i in range(1,13)])
-                                if month_opt != "Tutti":
-                                    harmonized = harmonized[harmonized['data'].dt.month == int(month_opt)]
-                            else:
-                                month_opt = None
+    if mismatched_files:
+        st.warning(f"⚠️ Nei documenti caricati il CF non coincide o manca: {mismatched_files}")
+        st.info(f"Verrà generato il report usando il CF: {cf_for_report} (manuale o primo CF valido trovato)")
 
-                            st.write("Anteprima dati armonizzati (anche se CF non coincide):")
-                            st.dataframe(harmonized)
+    # poi filtra dati usando il cf_for_report
+    all_frames = []
+    for fname, df in temp_frames.items():
+        col = cf_values[fname]['col']
+        if col:
+            mask = df[col].astype(str).str.contains(cf_for_report, case=False, na=False)
+            all_frames.append(df[mask])
+        else:
+            # cerca CF nel testo
+            df_masked = df[df.astype(str).apply(lambda row: row.str.contains(cf_for_report, case=False, na=False).any(), axis=1)]
+            all_frames.append(df_masked)
+    harmonized = pd.concat(all_frames, ignore_index=True)
 
-                            # segnala mismatch CF
-                            if mismatch:
-                                st.warning(f"⚠️ Nei documenti caricati il CF non coincide in questi file: {mismatched_files}")
-                                st.info(f"Verrà generato il report usando il CF: {cf_for_report} (primo CF valido trovato)")
-
-                                if st.button("Genera template email al tecnico / analista"):
-                                    subject, body, mailto = make_email_template(
-                                        problem_description="CF non coincidenti nei documenti caricati.",
-                                        cf=cf_for_report,
-                                        file_names=list(temp_frames.keys())
-                                    )
-                                    st.subheader("Template email (copia/incolla / con connessione mail possibile)")
-                                    st.write("Oggetto:")
-                                    st.code(subject)
-                                    st.write("Corpo:")
-                                    st.code(body)
-                                    st.markdown(f"[📧 Invia email](mailto:{mailto[7:]})")  # rimuove mailto: duplicato
+    
 
                             # Download Excel
                             towrite = io.BytesIO()
