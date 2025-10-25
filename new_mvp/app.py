@@ -1,214 +1,128 @@
-# app_mvp_v2.py
 import streamlit as st
 import pandas as pd
+import numpy as np
 import pdfplumber
 from fpdf import FPDF
-import re
 import io
+import re
+
+st.set_page_config(page_title="DataHub ASP Siena", layout="wide")
 
 # -------------------------
-# PAGINA CORRENTE E NAVIGAZIONE
+# Stato pagina e login
 # -------------------------
-if "page" not in st.session_state:
-    st.session_state.page = "welcome"
-
-def go_to(page_name: str):
-    st.session_state.page = page_name
-    st.rerun()
-
-# -------------------------
-# SESSION STATE
-# -------------------------
-if "uploaded_files_store" not in st.session_state:
-    st.session_state.uploaded_files_store = {}
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "show_upload" not in st.session_state:
     st.session_state.show_upload = False
 if "show_manage" not in st.session_state:
     st.session_state.show_manage = False
+if "uploaded_files_store" not in st.session_state:
+    st.session_state.uploaded_files_store = {}
+if "internal_db" not in st.session_state:
+    st.session_state.internal_db = {}
 
 # -------------------------
-# HELPERS
+# WELCOME + LOGIN
 # -------------------------
-CF_REGEX = re.compile(r'\b[A-Z0-9]{16}\b', flags=re.IGNORECASE)
+st.markdown("<div style='text-align:center'>", unsafe_allow_html=True)
+st.title("🧠 DataHub — Centralizzazione intelligente dei dati (MVP)")
 
-def read_file(uploaded_file):
-    try:
-        name = uploaded_file.name.lower()
-        if name.endswith(".csv") or name.endswith(".txt"):
-            return pd.read_csv(uploaded_file)
-        elif name.endswith((".xls", ".xlsx")):
-            return pd.read_excel(uploaded_file)
-        elif name.endswith(".pdf"):
-            return extract_table_from_pdf(uploaded_file)
-    except:
-        return None
+# Logo (placeholder)
+# st.image("logo_azienda.png", width=150)  # se file locale presente
+st.markdown("**Prototipo AI per armonizzare e sincronizzare dati eterogenei**")
+st.markdown("</div>", unsafe_allow_html=True)
 
-def extract_table_from_pdf(uploaded_pdf):
-    tables = []
-    try:
-        with pdfplumber.open(uploaded_pdf) as pdf:
-            for page in pdf.pages:
-                table = page.extract_table()
-                if table:
-                    df = pd.DataFrame(table[1:], columns=table[0])
-                    df = df.loc[:, ~df.columns.duplicated()]
-                    tables.append(df)
-    except:
-        return pd.DataFrame()
-    if tables:
-        return pd.concat(tables, ignore_index=True)
-    return pd.DataFrame()
+# Login centrale
+col1, col2, col3 = st.columns([1,2,1])
+with col2:
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+    token = st.text_input("Token WHR-TIME")
+    if st.button("Accedi"):
+        if token.strip().upper().startswith("WHR"):
+            st.session_state.logged_in = True
+            st.success("Login effettuato (simulazione MVP).")
+        else:
+            st.error("Token non valido (deve iniziare con WHR).")
 
-def normalize_columns(df):
-    df = df.copy()
-    df.columns = [str(c).strip() for c in df.columns]
-    return df
-
-def find_cf_candidates_in_df(df):
-    for col in df.columns:
-        vals = df[col].dropna().astype(str).str.upper().str.strip()
-        for v in vals:
-            if CF_REGEX.match(v):
-                return col, v
-    return None, None
-
-# -------------------------
-# WELCOME PAGE
-# -------------------------
-if st.session_state.page == "welcome":
-    st.image("https://www.asp.siena.it/asp2025/wp-content/themes/Design-Asp2025/img/asp_logo.png", width=150)  # spazio per il logo
-    st.title("🧠 DataHub MVP - ASP Siena")
-    st.write("""
-        Prototipo AI per armonizzare e sincronizzare dati eterogenei.
-        \nCarica file, armonizza dati e genera report per pazienti.
-    """)
-    st.write("✨ Benvenuto! Inizia cliccando il pulsante per accedere.")
-    if st.button("Accedi al portale"):
-        go_to("login")
-
-# -------------------------
-# LOGIN PAGE
-# -------------------------
-elif st.session_state.page == "login":
-    st.header("Login area riservata")
-    col1, col2 = st.columns([2,1])
-    with col1:
-        user = st.text_input("Username")
-        pwd = st.text_input("Password", type="password")
-        token = st.text_input("Token WHR-TIME")
-        if st.button("Entra"):
-            if token.strip().upper().startswith("WHR"):
-                st.success("Login effettuato!")
-                st.session_state.logged_in = True
-                go_to("main_menu")
-            else:
-                st.error("Token non valido")
-    with col2:
-        if st.button("← Torna indietro"):
-            go_to("welcome")
+# Pulsante torna indietro in basso a sinistra
+st.markdown("<div style='position:fixed; bottom:10px; left:10px'>"
+            "<small><a href='#'>← Torna indietro</a></small>"
+            "</div>", unsafe_allow_html=True)
 
 if not st.session_state.logged_in:
     st.stop()
+st.write("---")
+col1, col2, col3 = st.columns([2,2,1])
+with col1:
+    if st.button("📂 Carica dati"):
+        st.session_state.show_upload = True
+        st.session_state.show_manage = False
+with col2:
+    if st.button("🛠️ Gestione dati"):
+        st.session_state.show_manage = True
+        st.session_state.show_upload = False
 
-# -------------------------
-# MAIN MENU
-# -------------------------
-elif st.session_state.page == "main_menu":
-    st.header("Menu principale")
-    col1, col2 = st.columns([2,2])
-    with col1:
-        if st.button("📂 Carica dati"):
-            go_to("upload")
-    with col2:
-        if st.button("🛠️ Gestione dati"):
-            go_to("manage")
-    st.button("🔒 Logout", key="logout_main", on_click=lambda: go_to("welcome"))
-
-# -------------------------
-# UPLOAD PAGE
-# -------------------------
-elif st.session_state.page == "upload":
+# Logout piccolo in basso a sinistra
+st.markdown("<div style='position:fixed; bottom:10px; left:10px'>"
+            "<small><a href='#' onclick='window.location.reload();'>Logout</a></small>"
+            "</div>", unsafe_allow_html=True)
+# --- Upload files ---
+if st.session_state.show_upload:
     st.header("Caricamento file")
-    uploaded = st.file_uploader("Trascina file qui", type=["csv","xls","xlsx","pdf","txt"], accept_multiple_files=True)
+    uploaded = st.file_uploader("Trascina file qui (accetta multipli).", type=["csv","xls","xlsx","pdf","txt"], accept_multiple_files=True)
     if uploaded:
         for f in uploaded:
             if f.name in st.session_state.uploaded_files_store:
-                st.warning(f"{f.name} già caricato")
+                st.warning(f"{f.name} già caricato; salto.")
                 continue
             df = read_file(f)
             if df is not None and not df.empty:
-                df = normalize_columns(df)
                 st.session_state.uploaded_files_store[f.name] = df
-                st.success(f"Caricato: {f.name} righe: {len(df)}")
-            else:
-                st.warning(f"File {f.name} non leggibile")
-    if st.button("← Torna al menu"):
-        go_to("main_menu")
+                st.success(f"Caricato: {f.name} — righe: {len(df)}")
+        st.info("File caricati. Vai in 'Gestione dati' per lavorarli.")
 
-# -------------------------
-# GESTIONE DATI
-# -------------------------
-elif st.session_state.page == "manage":
-    st.header("Gestione dati")
-    area = st.radio("Seleziona area:", ["Sanitario","Finanziario","Amministrativo","Combinata / Multi-area"])
-    db_option = st.radio("Sorgente dati:", ["DB interno","Drag & Drop"])
+# --- Gestione dati ---
+if st.session_state.show_manage:
+    st.header("Gestione dei dati")
+    area = st.selectbox("Seleziona area:", ["Sanitario", "Finanziario", "Amministrativo", "Combinata / Multi-area"])
     
-    if db_option=="Drag & Drop":
-        files = st.file_uploader("Carica 2 file per CF del paziente", type=["csv","xls","xlsx","pdf","txt"], accept_multiple_files=True)
-        if files:
-            temp = {}
-            cf_values = {}
-            for f in files[:2]:
-                df = read_file(f)
-                if df is not None and not df.empty:
-                    df = normalize_columns(df)
-                    temp[f.name] = df
-                    col, cf = find_cf_candidates_in_df(df)
-                    cf_values[f.name] = {"col": col, "cf": cf}
-            st.subheader("CF rilevati in ogni file")
-            for fname, info in cf_values.items():
-                st.write(f"- {fname}: CF={info['cf']} (colonna: {info['col']})")
+    # Seleziona file da DB interno o Drag&Drop
+    db_option = st.radio("Scegli sorgente:", ["DB interno (dati caricati)", "Drag & Drop (carica file)"])
+    
+    if db_option == "DB interno (dati caricati)":
+        # mostra CF rilevati nei file
+        cf_index = {}
+        for fname, df in st.session_state.uploaded_files_store.items():
+            col, cf_val = find_cf_candidates_in_df(df)
+            cf_index.setdefault(cf_val, []).append((fname, col))
+        cf_keys = [k for k in cf_index.keys() if k]
+        if cf_keys:
+            cf_choice = st.selectbox("Seleziona CF (dal DB interno):", cf_keys)
+            st.write("File con CF rilevato:")
+            for fname, col in cf_index[cf_choice]:
+                st.write(f"- {fname} (colonna: {col})")
+            # armonizzazione
+            frames = []
+            for fname, col in cf_index[cf_choice]:
+                df = st.session_state.uploaded_files_store[fname]
+                mask = df[col].astype(str).str.contains(cf_choice, case=False, na=False)
+                frames.append(df[mask])
+            harmonized = pd.concat(frames, ignore_index=True)
+            st.dataframe(harmonized)
             
-            # selezione sotto-attività
-            if area != "Combinata / Multi-area":
-                activity = st.selectbox("Seleziona attività specifica", [
-                    "Visualizza cartella clinica",
-                    "Collega a ordine farmacia",
-                    "Report spese paziente"
-                ] if area=="Sanitario" else (
-                    ["Genera fattura","Prepara email","Richiedi pagamento"] if area=="Finanziario" else
-                    ["Riepilogo acquisti","Analisi consumi mense","Report personale"]
-                ))
+            # selezione attività
+            if area == "Sanitario":
+                activity = st.selectbox("Seleziona attività:", ["Visualizza cartella clinica", "Collega a ordine farmacia", "Report spese paziente"])
+            elif area == "Finanziario":
+                activity = st.selectbox("Seleziona attività:", ["Richiedi pagamento", "Genera fattura PDF", "Prepara email"])
+            elif area == "Amministrativo":
+                activity = st.selectbox("Seleziona attività:", ["Visualizza riepilogo acquisti", "Analisi consumi mense", "Report personale"])
             else:
-                activity = st.selectbox("Seleziona funzione combinata", [
-                    "Armonizza dati paziente",
-                    "Genera fattura completa",
-                    "Report multi-paziente",
-                    "Controllo qualità / discrepanze"
-                ])
+                activity = st.selectbox("Funzioni multi-area:", ["Armonizza dati paziente", "Genera fattura completa", "Report multi-paziente", "Controllo qualità / discrepanze"])
             
-            # Pulsante finale con icona per scaricare Excel
-            if st.button("💾 Genera report finale"):
-                all_frames = []
-                for fname, df in temp.items():
-                    col = cf_values[fname]['col']
-                    cf = cf_values[fname]['cf']
-                    if col:
-                        mask = df[col].astype(str).str.contains(cf, case=False, na=False)
-                        all_frames.append(df[mask])
-                if all_frames:
-                    harmonized = pd.concat(all_frames, ignore_index=True)
-                    # scarica Excel
-                    output = io.BytesIO()
-                    harmonized.to_excel(output, index=False)
-                    st.download_button("📥 Scarica Excel", data=output.getvalue(), file_name="report.xlsx", mime="application/vnd.ms-excel")
-                    st.success("✅ Salvamento effettuato!")
-                else:
-                    st.warning("Nessun dato trovato da armonizzare.")
-    
-    else:
-        st.write("DB interno selezionato — funzione pronta per MVP")
-    
-    st.button("← Torna al menu", on_click=lambda: go_to("main_menu"))
+            # genera Excel con feedback
+            if st.button("💾 Genera report Excel"):
+                harmonized.to_excel(f"report_{cf_choice}.xlsx", index=False)
+                st.success("Salvamento effettuato")
