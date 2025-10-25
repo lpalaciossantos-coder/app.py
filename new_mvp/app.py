@@ -78,7 +78,7 @@ def find_cf_candidates_in_df(df):
 # WELCOME PAGE
 # -------------------------
 if st.session_state.page == "welcome":
-    st.image("logo_azienda.png", width=150)  # spazio per il logo
+    st.image("https://www.asp.siena.it/asp2025/wp-content/themes/Design-Asp2025/img/asp_logo.png", width=150)  # spazio per il logo
     st.title("🧠 DataHub MVP - ASP Siena")
     st.write("""
         Prototipo AI per armonizzare e sincronizzare dati eterogenei.
